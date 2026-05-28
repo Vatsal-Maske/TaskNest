@@ -2,6 +2,9 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import "dotenv/config";
+import { exec } from "child_process";
+import path from "path";
+import { fileURLToPath } from "url";
 
 // Route imports
 import authRoutes from "./routes/auth.routes.js";
@@ -206,6 +209,47 @@ app.get("/api/test/exam-reminder", async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
+});
+
+// ─── Run All Tests Route (Development Only) ───────────────────────────────────
+// Programmatically executes test-full.js and returns the parsed results.
+app.get("/api/test/all", (req, res) => {
+  if (process.env.NODE_ENV !== "development") {
+    return res.status(403).json({ success: false, message: "Test routes disabled in production" });
+  }
+
+  // Get __dirname in ES module
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  const testScriptPath = path.join(__dirname, "..", "test-full.js");
+
+  exec(`node "${testScriptPath}"`, (error, stdout, stderr) => {
+    // Parse stats from test output
+    const passedMatch = stdout.match(/PASSED\s*:\s*(\d+)/);
+    const failedMatch = stdout.match(/FAILED\s*:\s*(\d+)/);
+    const skippedMatch = stdout.match(/SKIPPED\s*:\s*(\d+)/);
+    const coreWorkingMatch = stdout.match(/CORE BACKEND:\s*(✅ 100% WORKING|❌\s*\d+\s*issues)/);
+
+    const passed = passedMatch ? parseInt(passedMatch[1], 10) : 0;
+    const failed = failedMatch ? parseInt(failedMatch[1], 10) : 0;
+    const skipped = skippedMatch ? parseInt(skippedMatch[1], 10) : 0;
+    const coreBackend = coreWorkingMatch ? coreWorkingMatch[1] : "Unknown";
+
+    const emailConfigured = stdout.includes("Email configured: YES ✅");
+
+    res.status(200).json({
+      success: failed === 0 && error === null,
+      summary: {
+        passed,
+        failed,
+        skipped,
+        emailConfigured,
+        coreBackend
+      },
+      output: stdout,
+      errors: stderr || undefined
+    });
+  });
 });
 
 // ─── 404 Handler ─────────────────────────────────────────────────────────────
