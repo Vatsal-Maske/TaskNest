@@ -30,6 +30,12 @@ const examSchema = new mongoose.Schema(
       enum: ["upcoming", "completed"],
       default: "upcoming",
     },
+
+    // Set to true after a reminder email has been sent — prevents duplicate emails
+    reminderSent: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

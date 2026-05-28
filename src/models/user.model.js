@@ -22,6 +22,20 @@ const userSchema = new mongoose.Schema(
       minlength: [6, "Password must be at least 6 characters"],
       select: false, // Never return password in queries unless explicitly requested
     },
+
+    // ── Email Verification ──────────────────────────────────────────────────
+    isVerified: {
+      type: Boolean,
+      default: false, // New users start as unverified
+    },
+    otp: {
+      type: String,
+      select: false, // Never expose hashed OTP in responses
+    },
+    otpExpires: {
+      type: Date,
+      select: false, // Never expose expiry in responses
+    },
   },
   {
     timestamps: true, // Automatically adds createdAt and updatedAt
