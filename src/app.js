@@ -109,6 +109,105 @@ app.get("/api/test/send-email", async (req, res) => {
   }
 });
 
+// ─── Test Exam Reminder Route (Development Only) ──────────────────────────────
+// Manually triggers the exam reminder logic — useful for testing without waiting for 8 AM cron.
+// Remove this before deploying to production.
+
+app.get("/api/test/exam-reminder", async (req, res) => {
+  if (process.env.NODE_ENV !== "development") {
+    return res.status(403).json({ success: false, message: "Test routes disabled in production" });
+  }
+
+  try {
+    const { default: Exam } = await import("./models/exam.model.js");
+
+    const now = new Date();
+    const next24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    // Find exams within 24 hours that haven't been reminded yet
+    const upcomingExams = await Exam.find({
+      status: "upcoming",
+      reminderSent: false,
+      examDate: { $gte: now, $lte: next24Hours },
+    })
+      .populate("userId", "name email")
+      .populate("subjectId", "name");
+
+    if (upcomingExams.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No upcoming exams found within next 24 hours with reminderSent=false",
+        examsChecked: 0,
+      });
+    }
+
+    const emailResults = [];
+
+    for (const exam of upcomingExams) {
+      if (!exam.userId?.email) {
+        emailResults.push({ exam: exam.title, status: "skipped", reason: "No user email" });
+        continue;
+      }
+
+      const subjectName = exam.subjectId?.name || "Unknown Subject";
+      const examDateFormatted = new Date(exam.examDate).toLocaleString("en-IN", {
+        dateStyle: "full", timeStyle: "short",
+      });
+
+      const html = `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:24px;background:#f9f9f9;border-radius:8px;">
+          <h2 style="color:#6366f1;">📚 StudyOS — Exam Reminder</h2>
+          <p>Hi <strong>${exam.userId.name}</strong>, your exam is in <strong>less than 24 hours!</strong></p>
+          <div style="background:#fff;border-left:4px solid #6366f1;padding:16px;border-radius:4px;margin:16px 0;">
+            <p style="margin:0;"><strong>📝 Exam:</strong> ${exam.title}</p>
+            <p style="margin:4px 0;"><strong>📖 Subject:</strong> ${subjectName}</p>
+            <p style="margin:4px 0;"><strong>📅 Date:</strong> ${examDateFormatted}</p>
+            <p style="margin:4px 0;"><strong>📋 Syllabus:</strong> ${exam.syllabus || "N/A"}</p>
+          </div>
+          <p>Good luck! 💪</p>
+          <p style="color:#888;font-size:12px;">— The StudyOS Team</p>
+        </div>
+      `;
+
+      try {
+        await sendEmail(
+          exam.userId.email,
+          `⏰ Exam Reminder: ${exam.title} is tomorrow!`,
+          `Reminder: ${exam.title} — ${examDateFormatted}. Syllabus: ${exam.syllabus || "N/A"}`,
+          html
+        );
+
+        // Mark as sent to prevent duplicate reminders
+        exam.reminderSent = true;
+        await exam.save();
+
+        emailResults.push({
+          exam: exam.title,
+          subject: subjectName,
+          sentTo: exam.userId.email,
+          reminderSent: true,
+          status: "sent",
+        });
+      } catch (emailErr) {
+        emailResults.push({
+          exam: exam.title,
+          status: "failed",
+          error: emailErr.message,
+        });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Exam reminder check complete",
+      examsChecked: upcomingExams.length,
+      results: emailResults,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ─── 404 Handler ─────────────────────────────────────────────────────────────
 // Catches any requests that don't match the defined routes
 

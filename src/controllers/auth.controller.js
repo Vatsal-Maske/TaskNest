@@ -41,6 +41,22 @@ const register = asyncHandler(async (req, res) => {
     otpExpires,
   });
 
+
+  // If email is not configured (dev/test with no OAuth2 creds), skip sending
+  // and auto-verify the user so the rest of the system stays testable.
+  if (!process.env.EMAIL_USER) {
+    user.isVerified = true;
+    await user.save();
+
+    res.status(201).json({
+      success: true,
+      message: "Registration successful. (Email not configured — auto-verified for development.)",
+      email: user.email,
+      devNote: "Set EMAIL_USER and OAuth2 credentials in .env to enable real OTP emails.",
+    });
+    return;
+  }
+
   // Send OTP to user's email (we do NOT return the OTP in the response)
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 24px; background: #f9f9f9; border-radius: 8px;">
